@@ -751,11 +751,15 @@ pub struct AgentConfig {
     /// Safety heartbeat injection interval inside `run_tool_call_loop`.
     /// Injects a security-constraint reminder every N tool iterations.
     /// Set to `0` to disable. Default: `5`.
+    /// Compatibility/rollback: omit/remove this key to use default (`5`), or set
+    /// to `0` for explicit disable.
     #[serde(default = "default_safety_heartbeat_interval")]
     pub safety_heartbeat_interval: usize,
     /// Safety heartbeat injection interval for interactive sessions.
     /// Injects a security-constraint reminder every N conversation turns.
     /// Set to `0` to disable. Default: `10`.
+    /// Compatibility/rollback: omit/remove this key to use default (`10`), or
+    /// set to `0` for explicit disable.
     #[serde(default = "default_safety_heartbeat_turn_interval")]
     pub safety_heartbeat_turn_interval: usize,
 }

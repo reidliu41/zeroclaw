@@ -1112,11 +1112,11 @@ impl SecurityPolicy {
                 .collect();
             let remaining = self.allowed_commands.len().saturating_sub(8);
             if remaining > 0 {
-                format!("{} (others rejected unless approved)", shown.join(", "))
+                format!("{} (+ {} more rejected)", shown.join(", "), remaining)
             } else if shown.is_empty() {
-                "none (all rejected unless approved)".to_string()
+                "none (all rejected)".to_string()
             } else {
-                format!("{} (others rejected unless approved)", shown.join(", "))
+                format!("{} (others rejected)", shown.join(", "))
             }
         };
 
@@ -2194,7 +2194,7 @@ mod tests {
         let summary = policy.summary_for_heartbeat();
         // Only first 8 shown, remainder counted
         assert!(summary.contains("+ 7 more"));
-        assert!(summary.contains("+ 4 more") || summary.contains("others rejected"));
+        assert!(summary.contains("+ 4 more rejected"));
     }
 
     #[test]

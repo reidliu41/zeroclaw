@@ -301,6 +301,10 @@ pub(crate) struct SafetyHeartbeatConfig {
     pub interval: usize,
 }
 
+fn should_inject_safety_heartbeat(counter: usize, interval: usize) -> bool {
+    interval > 0 && counter > 0 && counter % interval == 0
+}
+
 /// Extract a short hint from tool call arguments for progress display.
 fn truncate_tool_args_for_progress(name: &str, args: &serde_json::Value, max_len: usize) -> String {
     let hint = match name {
@@ -854,7 +858,7 @@ pub(crate) async fn run_tool_call_loop(
 
         // ── Safety heartbeat: periodic security-constraint re-injection ──
         if let Some(ref hb) = heartbeat_config {
-            if hb.interval > 0 && iteration > 0 && iteration % hb.interval == 0 {
+            if should_inject_safety_heartbeat(iteration, hb.interval) {
                 let reminder = format!(
                     "[Safety Heartbeat — round {}/{}]\n{}",
                     iteration + 1,
@@ -2153,6 +2157,7 @@ pub async fn run(
                     rl.clear_history()?;
                     history.clear();
                     history.push(ChatMessage::system(&system_prompt));
+                    interactive_turn = 0;
                     // Clear conversation and daily memory
                     let mut cleared = 0;
                     for category in [MemoryCategory::Conversation, MemoryCategory::Daily] {
@@ -2201,10 +2206,10 @@ pub async fn run(
             interactive_turn += 1;
 
             // Inject interactive safety heartbeat at configured turn intervals
-            if config.agent.safety_heartbeat_turn_interval > 0
-                && interactive_turn > 0
-                && interactive_turn % config.agent.safety_heartbeat_turn_interval == 0
-            {
+            if should_inject_safety_heartbeat(
+                interactive_turn,
+                config.agent.safety_heartbeat_turn_interval,
+            ) {
                 let reminder = format!(
                     "[Safety Heartbeat — turn {}]\n{}",
                     interactive_turn,
@@ -2621,6 +2626,36 @@ mod tests {
         maybe_inject_cron_add_delivery("cron_add", &mut feishu_args, "feishu", Some("oc_yyy"));
         assert_eq!(feishu_args["delivery"]["channel"], "feishu");
         assert_eq!(feishu_args["delivery"]["to"], "oc_yyy");
+    }
+
+    #[test]
+    fn safety_heartbeat_interval_zero_disables_injection() {
+        for counter in [0, 1, 2, 10, 100] {
+            assert!(
+                !should_inject_safety_heartbeat(counter, 0),
+                "counter={counter} should not inject when interval=0"
+            );
+        }
+    }
+
+    #[test]
+    fn safety_heartbeat_interval_one_injects_every_non_initial_step() {
+        assert!(!should_inject_safety_heartbeat(0, 1));
+        for counter in 1..=6 {
+            assert!(
+                should_inject_safety_heartbeat(counter, 1),
+                "counter={counter} should inject when interval=1"
+            );
+        }
+    }
+
+    #[test]
+    fn safety_heartbeat_injects_only_on_exact_multiples() {
+        let interval = 3;
+        let injected: Vec<usize> = (0..=10)
+            .filter(|counter| should_inject_safety_heartbeat(*counter, interval))
+            .collect();
+        assert_eq!(injected, vec![3, 6, 9]);
     }
 
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
