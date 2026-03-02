@@ -400,6 +400,21 @@ fn interruption_scope_key(msg: &traits::ChannelMessage) -> String {
     format!("{}_{}_{}", msg.channel, msg.reply_target, msg.sender)
 }
 
+/// Returns `true` when `output` is a heartbeat/cron noop sentinel
+/// (`HEARTBEAT_OK` or `NO_REPLY`) that must not be delivered to channel
+/// users.  Mirrors the daemon-side filter in `daemon::is_heartbeat_ok_sentinel`
+/// and `cron::scheduler::is_no_reply_sentinel`.
+fn is_agent_noop_sentinel(output: &str) -> bool {
+    let trimmed = output.trim();
+    crate::cron::scheduler::is_no_reply_sentinel(trimmed) || {
+        const HEARTBEAT_OK: &str = "HEARTBEAT_OK";
+        trimmed
+            .get(..HEARTBEAT_OK.len())
+            .map(|prefix| prefix.eq_ignore_ascii_case(HEARTBEAT_OK))
+            .unwrap_or(false)
+    }
+}
+
 /// Strip tool-call XML tags from outgoing messages.
 ///
 /// LLM responses may contain `<function_calls>`, `<function_call>`,
@@ -3927,6 +3942,32 @@ or tune thresholds in config.",
                         outbound_response = modified_content;
                     }
                 }
+            }
+
+            // Suppress heartbeat/noop sentinel responses that should never
+            // be delivered to channel users (mirrors daemon heartbeat filter).
+            if is_agent_noop_sentinel(&outbound_response) {
+                tracing::debug!(
+                    channel = %msg.channel,
+                    sender = %msg.sender,
+                    "Suppressed agent noop sentinel in channel response"
+                );
+                if let (Some(channel), Some(ref draft_id)) =
+                    (target_channel.as_ref(), &draft_message_id)
+                {
+                    let _ = channel.cancel_draft(&msg.reply_target, draft_id).await;
+                }
+                // Swap 👀 → ✅ even though we suppress delivery —
+                // the agent did process the message; it just had nothing to say.
+                if let Some(channel) = target_channel.as_ref() {
+                    let _ = channel
+                        .remove_reaction(&msg.reply_target, &msg.id, "\u{1F440}")
+                        .await;
+                    let _ = channel
+                        .add_reaction(&msg.reply_target, &msg.id, "\u{2705}")
+                        .await;
+                }
+                return;
             }
 
             let leak_guard_cfg = runtime_outbound_leak_guard_snapshot(ctx.as_ref());
@@ -12445,5 +12486,26 @@ BTC is currently around $65,000 based on latest tool output."#;
             turns.iter().all(|turn| !turn.content.contains("[IMAGE:")),
             "failed vision turn must not persist image marker content"
         );
+    }
+
+    #[test]
+    fn is_agent_noop_sentinel_detects_heartbeat_ok() {
+        assert!(is_agent_noop_sentinel("HEARTBEAT_OK"));
+        assert!(is_agent_noop_sentinel("  heartbeat_ok  "));
+        assert!(is_agent_noop_sentinel("HEARTBEAT_OK — nothing to report"));
+    }
+
+    #[test]
+    fn is_agent_noop_sentinel_detects_no_reply() {
+        assert!(is_agent_noop_sentinel("NO_REPLY"));
+        assert!(is_agent_noop_sentinel("  no_reply  "));
+    }
+
+    #[test]
+    fn is_agent_noop_sentinel_ignores_normal_responses() {
+        assert!(!is_agent_noop_sentinel("Hello, how can I help?"));
+        assert!(!is_agent_noop_sentinel(""));
+        assert!(!is_agent_noop_sentinel("The heartbeat is running fine"));
+        assert!(!is_agent_noop_sentinel("NO_REPLY please"));
     }
 }
