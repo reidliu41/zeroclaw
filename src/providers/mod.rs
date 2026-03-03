@@ -992,6 +992,7 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "llamacpp" | "llama.cpp" => vec!["LLAMACPP_API_KEY"],
         "sglang" => vec!["SGLANG_API_KEY"],
         "vllm" => vec!["VLLM_API_KEY"],
+        "litellm" => vec!["LITELLM_API_KEY"],
         "osaurus" => vec!["OSAURUS_API_KEY"],
         "telnyx" => vec!["TELNYX_API_KEY"],
         _ => vec![],
@@ -1433,6 +1434,18 @@ fn create_provider_with_url_and_options(
                 .unwrap_or("http://localhost:8000/v1");
             Ok(Box::new(OpenAiCompatibleProvider::new(
                 "vLLM",
+                base_url,
+                key,
+                AuthStyle::Bearer,
+            )))
+        }
+        "litellm" => {
+            let base_url = api_url
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("http://localhost:4000/v1");
+            Ok(Box::new(OpenAiCompatibleProvider::new(
+                "LiteLLM",
                 base_url,
                 key,
                 AuthStyle::Bearer,
@@ -2058,6 +2071,12 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             local: true,
         },
         ProviderInfo {
+            name: "litellm",
+            display_name: "LiteLLM",
+            aliases: &[],
+            local: false,
+        },
+        ProviderInfo {
             name: "osaurus",
             display_name: "Osaurus",
             aliases: &[],
@@ -2679,6 +2698,12 @@ mod tests {
     }
 
     #[test]
+    fn factory_litellm() {
+        assert!(create_provider("litellm", None).is_ok());
+        assert!(create_provider("litellm", Some("key")).is_ok());
+    }
+
+    #[test]
     fn factory_osaurus() {
         // Osaurus works without an explicit key (defaults to "osaurus").
         assert!(create_provider("osaurus", None).is_ok());
@@ -3135,6 +3160,7 @@ providers = ["demo-plugin-provider"]
             "llamacpp",
             "sglang",
             "vllm",
+            "litellm",
             "osaurus",
             "telnyx",
             "groq",
